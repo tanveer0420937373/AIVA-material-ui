@@ -1,0 +1,10 @@
+<resources>
+    <color name="aiva_background">#FBF9FE</color>
+    <color name="aiva_card">#FFFFFF</color>
+    <color name="aiva_text">#211D2B</color>
+    <color name="aiva_muted">#777181</color>
+    <color name="aiva_primary">#6552B8</color>
+    <color name="aiva_accent">#EEE8FF</color>
+    <color name="aiva_border">#E8E3EF</color>
+    <color name="aiva_danger">#B3261E</color>
+</resources>

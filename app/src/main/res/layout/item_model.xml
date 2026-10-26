@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="horizontal" android:padding="14dp" android:layout_marginBottom="10dp" android:background="@drawable/bg_card" android:gravity="top">
+    <TextView android:id="@+id/model_mark" android:layout_width="42dp" android:layout_height="42dp" android:gravity="center" android:background="@drawable/bg_chip_accent" android:text="A" android:textSize="19sp" android:textStyle="bold" android:textColor="@color/aiva_primary" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:paddingStart="12dp">
+        <TextView android:id="@+id/model_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Model name" android:textColor="@color/aiva_text" android:textSize="16sp" android:textStyle="bold" />
+        <TextView android:id="@+id/model_vendor" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Vendor · Provider" android:textColor="@color/aiva_muted" android:textSize="12sp" />
+        <TextView android:id="@+id/model_remote_id" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="provider/model-id" android:textColor="@color/aiva_muted" android:textSize="11sp" />
+        <TextView android:id="@+id/model_description" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Model description" android:textColor="@color/aiva_muted" android:textSize="13sp" />
+        <TextView android:id="@+id/model_capabilities" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Text · Code" android:textColor="@color/aiva_primary" android:textSize="11sp" />
+        <TextView android:id="@+id/model_status" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Selected" android:textColor="@color/aiva_primary" android:textStyle="bold" android:textSize="12sp" android:visibility="gone" />
+    </LinearLayout>
+</LinearLayout>

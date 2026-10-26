@@ -1,0 +1,91 @@
+<resources>
+    <style name="BottomNavItem">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center</item>
+        <item name="android:padding">4dp</item>
+        <item name="android:textColor">@color/aiva_muted</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:background">?android:attr/selectableItemBackground</item>
+    </style>
+    <style name="SmallPillButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">40dp</item>
+        <item name="android:minWidth">44dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingTop">6dp</item>
+        <item name="android:paddingBottom">6dp</item>
+        <item name="android:layout_marginStart">3dp</item>
+        <item name="android:layout_marginEnd">3dp</item>
+        <item name="android:background">@drawable/bg_chip_accent</item>
+        <item name="android:textColor">@color/aiva_primary</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:gravity">center</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+    <style name="PrimaryPillButton" parent="SmallPillButton">
+        <item name="android:background">@drawable/bg_primary_pill</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:minWidth">56dp</item>
+    </style>
+    <style name="DangerPillButton" parent="SmallPillButton">
+        <item name="android:background">@drawable/bg_danger_pill</item>
+        <item name="android:textColor">@color/aiva_danger</item>
+    </style>
+    <style name="SuggestionChip" parent="SmallPillButton">
+        <item name="android:layout_height">38dp</item>
+        <item name="android:background">@drawable/bg_input</item>
+        <item name="android:textColor">@color/aiva_text</item>
+        <item name="android:layout_marginEnd">5dp</item>
+    </style>
+    <style name="TextButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">36dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">8dp</item>
+        <item name="android:paddingEnd">8dp</item>
+        <item name="android:background">?android:attr/selectableItemBackground</item>
+        <item name="android:textColor">@color/aiva_primary</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+    <style name="SectionTitle">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/aiva_text</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="FieldLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">10dp</item>
+        <item name="android:textColor">@color/aiva_muted</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+    <style name="ProviderStatus">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">14dp</item>
+        <item name="android:textColor">@color/aiva_text</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="ApiKeyInput">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_marginTop">5dp</item>
+        <item name="android:background">@drawable/bg_input</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:textColor">@color/aiva_text</item>
+        <item name="android:textColorHint">@color/aiva_muted</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:saveEnabled">false</item>
+    </style>
+</resources>

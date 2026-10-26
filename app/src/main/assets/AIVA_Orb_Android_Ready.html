@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>AIVA Voice Orb</title>
+<style>
+/* AIVA Orb - embeddable, transparent, no chrome. */
+:root { --orb-size: min(100vw, 100vh); }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  overscroll-behavior: none;
+}
+
+#aiva-orb-root {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  pointer-events: none;
+}
+
+.aiva-orb-box {
+  width: var(--orb-size);
+  height: var(--orb-size);
+  max-width: 100vw;
+  max-height: 100vh;
+  flex: 0 0 auto;
+  contain: layout paint size;
+}
+
+.aiva-orb-box canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+
+</style>
+</head>
+<body>
+<div id="aiva-orb-root" aria-hidden="true"></div>
+<script>
+/* AIVA Orb - GLSL sources (WebGL1 / GLSL ES 1.00 for maximum Android WebView compatibility).
+ * Exposes window.AIVAShaders = { vertex, fragment(low) }.
+ * Define LOW is used for the reduced-cost variant (fewer warps / highlight layers).
+ */
+(function (global) {
+  'use strict';
+
+  var VERTEX = [
+    'attribute vec2 a_pos;',
+    'void main(){ gl_Position = vec4(a_pos, 0.0, 1.0); }'
+  ].join('\n');
+
+  var FRAGMENT = [
+    '#ifdef GL_FRAGMENT_PRECISION_HIGH',
+    'precision highp float;',
+    '#else',
+    'precision mediump float;',
+    '#endif',
+
+    'uniform vec2  u_res;',
+    'uniform float u_time;',
+    'uniform float u_px;',        // size of one pixel in uv units
+    'uniform float u_radius;',    // sphere radius in uv units
+    'uniform float u_amp;',       // smoothed voice level 0..1
+    'uniform vec3  u_bands;',     // low / mid / high energy 0..1
+    'uniform float u_glow;',
+    'uniform float u_sat;',
+    'uniform float u_bright;',
+    'uniform float u_err;',
+    'uniform float u_proc;',
+    'uniform float u_speak;',
+    'uniform float u_listen;',
+    'uniform float u_opacity;',
+    'uniform vec3  u_tint;',
+    'uniform vec4  u_waves[3];',  // x = progress 0..1, y = strength
+    'uniform float u_shake;',
+    'uniform float u_idle;',
+
+    'float hash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }',
+    'float st(float a, float b, float t){ return smoothstep(a, b, t); }',
+
+    /* Vertical colour ramp, t = 0 is the warm band, +1 top (cyan), -1 bottom (peach). */
+    'vec3 ramp(float t){',
+    '  vec3 c = vec3(1.00, 0.78, 0.70);',
+    '  c = mix(c, vec3(0.80, 0.62, 0.98), st(-1.05, -0.78, t));',
+    '  c = mix(c, vec3(1.00, 0.56, 0.80), st(-0.80, -0.45, t));',
+    '  c = mix(c, vec3(1.00, 0.64, 0.58), st(-0.50, -0.20, t));',
+    '  c = mix(c, vec3(1.00, 0.70, 0.34), st(-0.26, -0.07, t));',
+    '  c = mix(c, vec3(1.00, 0.94, 0.52), st(-0.10,  0.00, t));',
+    '  c = mix(c, vec3(0.96, 0.66, 0.96), st( 0.00,  0.30, t));',
+    '  c = mix(c, vec3(0.60, 0.52, 1.00), st( 0.26,  0.56, t));',
+    '  c = mix(c, vec3(0.27, 0.56, 1.00), st( 0.50,  0.86, t));',
+    '  c = mix(c, vec3(0.16, 0.92, 1.00), st( 0.80,  1.15, t));',
+    '  return c;',
+    '}',
+
+    /* Thin-film style iridescence palette. */
+    'vec3 film(float x){ return 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + x)); }',
+
+    /* Curved specular crescent: ring of radius rad around c, limited to a direction cone. */
+    'float arc(vec2 q, vec2 c, float rad, float w, vec2 dir, float spread){',
+    '  vec2 v = q - c;',
+    '  float l = length(v);',
+    '  float m = smoothstep(spread, 1.0, dot(v / max(l, 1e-4), dir));',
+    '  float ww = w * (0.6 + 0.8 * m);',
+    '  float k = (l - rad) / ww;',
+    '  return exp(-k * k) * m;',
+    '}',
+
+    'vec3 grade(vec3 c){',
+    '  c *= u_tint;',
+    '  float lum = dot(c, vec3(0.299, 0.587, 0.114));',
+    '  vec3 errc = vec3(lum * 1.10 + 0.18, lum * 0.30, lum * 0.36 + 0.05);',
+    '  c = mix(c, errc, u_err);',
+    '  c = mix(vec3(lum), c, u_sat) * u_bright;',
+    '  return c;',
+    '}',
+
+    'void main(){',
+    '  vec2 p = (gl_FragCoord.xy * 2.0 - u_res) / min(u_res.x, u_res.y);',
+    '  p.x -= u_shake;',
+    '  float r = length(p);',
+    '  float ang = atan(p.y, p.x);',
+    '  float T = u_time;',
+
+    /* Organic silhouette deformation driven by real audio energy. */
+    '  float Re = u_radius * (1.0',
+    '    + u_amp * 0.016 * sin(ang * 3.0 + T * 2.6)',
+    '    + u_bands.x * 0.012 * sin(ang * 2.0 - T * 1.9)',
+    '    + u_proc * 0.012 * sin(ang * 4.0 + T * 2.0));',
+    '  float d = r - Re;',
+    '  float aa = u_px * 1.25;',
+    '  float cover = 1.0 - smoothstep(-aa, aa, d);',
+
+    '  vec2 q = p / Re;',
+    '  float qq = min(length(q), 1.0);',
+    '  float nz = sqrt(max(1.0 - qq * qq, 0.0));',
+    '  float fres = pow(1.0 - nz, 2.6);',
+
+    /* Colour-field coordinate with slow iridescent warping. */
+    '  float t = q.y + 0.05 - 0.085 * q.x * q.x;',
+    '  t += 0.030 * sin(q.x * 3.6 + q.y * 2.2 + T * 0.35);',
+    '#ifndef LOW',
+    '  t += 0.016 * sin(q.x * 8.5 - T * 0.55 + 1.7);',
+    '#endif',
+    '  t += u_amp * 0.045 * sin(q.x * 5.0 + T * 3.1) + u_bands.x * 0.04 * sin(q.x * 2.5 - T * 2.0);',
+    '  t += u_proc * 0.07 * sin(q.x * 5.5 + q.y * 3.0 + T * 2.4);',
+    '  t += u_idle * 0.022 * sin(q.x * 2.0 - T * 0.5 + q.y * 1.5);',
+    '  t += u_listen * 0.03 * sin(q.x * 3.0 + T * 1.4) * (0.4 + u_amp);',
+    '  t += u_speak * 0.035 * sin(q.x * 6.0 - T * 4.0 + q.y * 2.0) * (0.3 + u_amp);',
+    '  float tc = t * (1.0 + 0.25 * smoothstep(0.0, 0.1, t)) * (1.0 - 0.20 * q.x);',
+    '  vec3 col = ramp(tc);',
+
+    /* Warm central band. */
+    '  float bandW = 0.05 + 0.02 * u_bands.y;',
+    '  float band = exp(-(t / bandW) * (t / bandW));',
+    '  float wide = exp(-(t / 0.20) * (t / 0.20));',
+    '  float boost = 1.0 + u_bands.y * 0.7 + u_amp * 0.5 + u_speak * 0.15;',
+    '  col += vec3(1.0, 0.86, 0.45) * band * 0.38 * boost * (0.8 + 0.4 * (1.0 - q.x * q.x));',
+    '  col += vec3(1.0, 0.80, 0.55) * wide * 0.08 * boost;',
+
+    /* Pastel lift in the centre, saturated edges = depth. */
+    '  col = mix(col, vec3(1.0), 0.02 + 0.05 * nz);',
+    '  col *= 0.80 + 0.20 * nz;',
+
+    /* Iridescent rim. */
+    '  float thick = (1.0 - nz) * 1.7 + ang * 0.12 + T * 0.04 + u_bands.z * 0.25;',
+    '  vec3 fm = mix(vec3(1.0), film(thick), 0.60);',
+    '  float rimMask = smoothstep(0.80, 1.0, qq);',
+    '  col = mix(col, pow(col, vec3(1.7)) * 1.15, smoothstep(0.62, 1.0, qq) * 0.55);',
+    '  col = mix(col, fm * 0.9, rimMask * 0.28);',
+    '  col += fm * fres * 0.22;',
+    '  float ki = (qq - 0.925) / 0.010;',
+    '  float ringIn = exp(-ki * ki);',
+    '  col += (fm * 0.5 + 0.5) * ringIn * (0.03 + 0.45 * pow(0.5 + 0.5 * sin(ang + 2.4), 2.0)) * (1.0 + u_bands.z);',
+    '  float ke = (qq - 0.992) / 0.012;',
+    '  col += vec3(1.0, 0.92, 0.98) * exp(-ke * ke) * 0.18;',
+
+    /* Specular highlights. */
+    '  float hl = 1.0 + u_bands.z * 0.6 + u_amp * 0.35;',
+    '  vec2 sh = vec2(-0.02, 0.02) * u_amp;',
+    '  vec3 hw = vec3(0.92, 1.0, 1.0);',
+    '  col += hw * arc(q, vec2(0.04, -0.05) + sh, 0.86, 0.016, normalize(vec2(-0.60, 0.80)), 0.72) * 0.75 * hl;',
+    '  col += hw * arc(q, vec2(0.04, -0.05) + sh, 0.86, 0.050, normalize(vec2(-0.60, 0.80)), 0.70) * 0.14 * hl;',
+    '  col += vec3(0.75, 1.0, 1.0) * exp(-length((q - vec2(-0.30, 0.58)) * vec2(1.0, 1.7)) * 2.8) * 0.16 * hl;',
+    '#ifndef LOW',
+    '  col += vec3(1.0, 0.92, 1.0) * arc(q, vec2(-0.02, -0.04), 0.80, 0.012, normalize(vec2(0.80, 0.60)), 0.84) * 0.45 * hl;',
+    '  col += vec3(1.0, 0.90, 0.75) * arc(q, vec2(0.0, 0.10), 0.90, 0.018, vec2(0.0, -1.0), 0.80) * 0.35 * hl;',
+    '  col += vec3(1.0, 0.82, 0.40) * (exp(-length((q - vec2(-0.90, -0.03)) * vec2(2.2, 7.0)) * 1.8)',
+    '                                + exp(-length((q - vec2( 0.90, -0.03)) * vec2(2.2, 7.0)) * 1.8)) * 0.5 * boost;',
+    '#endif',
+    '  col += vec3(1.0, 0.86, 0.55) * exp(-length((q - vec2(0.0, -0.86)) * vec2(0.9, 3.4)) * 4.0) * 0.6 * boost;',
+
+    /* Internal light while processing (two counter-orbiting soft lights). */
+    '  if (u_proc > 0.01) {',
+    '    float a1 = T * 1.7;',
+    '    vec2 lp  = vec2(cos(a1), sin(a1 * 0.8 + 0.5)) * 0.46;',
+    '    vec2 lp2 = vec2(cos(-a1 * 1.3 + 2.0), sin(-a1 * 1.1)) * 0.38;',
+    '    vec3 lc = film(T * 0.12);',
+    '    col += mix(vec3(1.0), lc, 0.6) * exp(-length(q - lp) * 3.4) * 0.55 * u_proc;',
+    '    col += mix(vec3(1.0), lc.zxy, 0.6) * exp(-length(q - lp2) * 3.8) * 0.40 * u_proc;',
+    '  }',
+
+    /* Voice-driven inner colour: cool bloom when listening, warm pink when speaking. */
+    '  float core = exp(-length(q - vec2(0.0, 0.10)) * 2.0) * u_amp;',
+    '  col += vec3(0.40, 0.90, 1.00) * core * 0.18 * u_listen;',
+    '  col += vec3(1.00, 0.55, 0.90) * core * 0.20 * u_speak;',
+
+    '  col = grade(col);',
+    '  vec3 over = max(col - 0.85, 0.0);',
+    '  col = min(col, vec3(0.85)) + 0.15 * (1.0 - exp(-over * 8.0));',
+
+    '  float a = cover * u_opacity * mix(0.88, 1.0, smoothstep(0.30, 0.95, qq));',
+
+    /* Outer bloom + audio waves. */
+    '  float dd = max(d, 0.0);',
+    '  float fade = 1.0 - smoothstep(0.70, 0.98, r);',
+    '  float bl = exp(-dd * 6.5) * u_glow * 0.32 * fade;',
+    '  vec3 bc = grade(mix(ramp(clamp(p.y / Re, -1.2, 1.2) * 0.9), vec3(1.0), 0.55));',
+    '  float wv = 0.0;',
+    '  for (int i = 0; i < 3; i++) {',
+    '    vec4 w = u_waves[i];',
+    '    if (w.y > 0.001) {',
+    '      float rr = Re * (1.05 + w.x * 0.26);',
+    '      float rw = 0.010 + w.x * 0.022;',
+    '      float k = (r - rr) / rw;',
+    '      wv += exp(-k * k) * w.y * (1.0 - w.x) * (1.0 - w.x);',
+    '    }',
+    '  }',
+    '  bl += wv * 0.45 * (1.0 - smoothstep(0.85, 1.0, r));',
+
+    /* IDLE: slow breathing halo. */
+    '  float ip = 0.5 + 0.5 * sin(T * 0.8);',
+    '  bl += u_idle * exp(-dd * 4.0) * (0.04 + 0.06 * ip) * fade;',
+
+    /* LISTENING: soft rings contracting inward, as if pulling sound in. */
+    '  float lr = 0.0;',
+    '  for (int j = 0; j < 3; j++) {',
+    '    float ph = fract(T * 0.38 + float(j) / 3.0);',
+    '    float rr2 = Re * (1.24 - ph * 0.20);',
+    '    float k2 = (r - rr2) / (0.012 + 0.02 * ph);',
+    '    lr += exp(-k2 * k2) * sin(3.14159 * ph);',
+    '  }',
+    '  lr *= u_listen * (0.22 + 0.5 * u_amp);',
+    '  bl += lr * (1.0 - smoothstep(0.85, 1.0, r));',
+    '  bc = mix(bc, vec3(0.50, 0.95, 1.00), clamp(lr * 2.0, 0.0, 0.7));',
+
+    /* PROCESSING: a comet with a fading tail circling the orb. */
+    '  float pa = mod(ang - T * 3.2, 6.28318);',
+    '  float tail = exp(-pa * 1.6);',
+    '  float kp = (r - Re * 1.07) / 0.010;',
+    '  float spin = exp(-kp * kp) * tail * u_proc;',
+    '  bl += spin * 0.9 * (1.0 - smoothstep(0.85, 1.0, r));',
+    '  bc = mix(bc, film(T * 0.2 + ang * 0.15), clamp(spin, 0.0, 1.0) * 0.7);',
+
+    /* SPEAKING: living, voice-shaped ring that swells with the level. */
+    '  float sa = u_speak * (0.25 + u_amp * 1.1);',
+    '  float rs = Re * (1.085 + sa * 0.06 * sin(ang * 5.0 + T * 3.6) * sin(ang * 3.0 - T * 2.2) + sa * 0.03 * sin(ang * 9.0 - T * 5.0));',
+    '  float ks = (r - rs) / (0.008 + 0.010 * sa);',
+    '  float spk = exp(-ks * ks) * u_speak * (0.35 + u_amp);',
+    '  bl += spk * 0.7 * (1.0 - smoothstep(0.85, 1.0, r));',
+    '  bc = mix(bc, vec3(1.00, 0.60, 0.95), clamp(spk, 0.0, 1.0) * 0.6);',
+    '  float bA = clamp(bl, 0.0, 1.0);',
+
+    /* Premultiplied alpha output. */
+    '  vec3 outc = col * a + bc * bA * (1.0 - a);',
+    '  float outa = a + bA * (1.0 - a);',
+    '  outc += (hash(gl_FragCoord.xy + fract(T) * 57.0) - 0.5) / 255.0 * outa;',
+    '  gl_FragColor = vec4(outc, outa);',
+    '}'
+  ];
+
+  global.AIVAShaders = {
+    vertex: VERTEX,
+    fragment: function (low) {
+      return (low ? '#define LOW\n' : '') + FRAGMENT.join('\n');
+    }
+  };
+})(typeof window !== 'undefined' ? window : this);
+</script>
+<script>
+/* AIVA Orb v1.0.0 - audio-reactive iridescent glass orb for Android WebView.
+ * No external dependencies. ES5 syntax for old WebView compatibility.
+ * The page NEVER requests microphone access; the native host feeds amplitude / audio data.
+ */
+(function (global) {
+  'use strict';
+
+  var doc = global.document;
+  if (global.AIVAOrb && global.AIVAOrb.version) { return; }
+
+  var VERSION = '1.0.0';
+  var STATES = ['idle', 'listening', 'processing', 'speaking', 'muted', 'error'];
+  var KEYS = ['sat', 'bright', 'glow', 'breath', 'err', 'proc', 'speak', 'listen', 'tx', 'ty', 'tz'];
+
+  var TARGETS = {
+    idle:       { sat: 1.00, bright: 1.00, glow: 0.55, breath: 1.0, err: 0, proc: 0, speak: 0, listen: 0, tx: 1.00, ty: 1.00, tz: 1.00 },
+    listening:  { sat: 1.05, bright: 1.02, glow: 0.72, breath: 0.6, err: 0, proc: 0, speak: 0, listen: 1, tx: 0.97, ty: 1.01, tz: 1.04 },
+    processing: { sat: 1.08, bright: 1.00, glow: 0.70, breath: 0.5, err: 0, proc: 1, speak: 0, listen: 0, tx: 1.00, ty: 1.00, tz: 1.00 },
+    speaking:   { sat: 1.08, bright: 1.03, glow: 0.82, breath: 0.5, err: 0, proc: 0, speak: 1, listen: 0, tx: 1.03, ty: 0.98, tz: 1.00 },
+    muted:      { sat: 0.10, bright: 0.58, glow: 0.12, breath: 0.3, err: 0, proc: 0, speak: 0, listen: 0, tx: 1.00, ty: 1.00, tz: 1.00 },
+    error:      { sat: 1.00, bright: 1.00, glow: 0.75, breath: 0.0, err: 1, proc: 0, speak: 0, listen: 0, tx: 1.00, ty: 1.00, tz: 1.00 }
+  };
+
+  var DEFAULTS = {
+    sensitivity: 1.0,        // input gain (0..4)
+    gate: 0.015,             // noise gate (0..0.5) -> input below this is treated as silence
+    attack: 0.045,           // seconds, smoothing when level rises
+    release: 0.22,           // seconds, smoothing when level falls
+    maxDpr: 2,               // cap on devicePixelRatio
+    quality: 'auto',         // 'auto' | 'high' | 'low'
+    targetFps: 60,
+    idleFps: 30,             // cap while idle / muted and silent (saves battery)
+    size: 0,                 // CSS px, 0 = auto (fit viewport)
+    baseRadius: 0.70,        // sphere radius as fraction of half viewport (leaves room for bloom + waves)
+    opacity: 1.0,
+    ampStates: ['listening', 'speaking'],
+    staleMs: 600,            // amplitude older than this decays to silence
+    speakingStaleMs: 700,    // in 'speaking': no amplitude for this long -> state-based animation
+    reducedMotion: null      // null = follow OS, true/false = force
+  };
+
+  var cfg = {};
+  var cur = {}, tgt = {};
+  var state = 'idle';
+  var inputAmp = 0, lastAmpTime = -1e9;
+  var level = 0, slow = 0;
+  var bandsRaw = [0, 0, 0], bandsSm = [0, 0, 0], lastSpecTime = -1e9;
+  var time = 0;
+  var lastWave = -1e9;
+  var speakingMode = 'state';
+
+  var root = null, box = null, renderer = null, rendererKind = 'none';
+  var rafId = 0, running = false, userPaused = false, lastRenderTs = 0;
+  var initialised = false, destroyed = false, ready = false;
+  var warm = 0, perfSum = 0, perfN = 0, scale = 1, fpsEma = 0;
+  var rmQuery = null, reducedMotion = false;
+  var lostTimer = 0, rendererLost = false;
+  var ro = null;
+  var listeners = [];
+
+  var frame = {
+    time: 0, radius: 0.70, amp: 0, bands: [0, 0, 0], glow: 0.5, sat: 1, bright: 1,
+    err: 0, proc: 0, speak: 0, listen: 0, tint: [1, 1, 1], opacity: 1, shake: 0, idle: 1,
+    waves: new Float32Array(12)
+  };
+
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function isNum(v) { return typeof v === 'number' && isFinite(v); }
+  function expk(dt, tau) { return 1 - Math.exp(-dt / tau); }
+  function nowMs() { return (global.performance && performance.now) ? performance.now() : Date.now(); }
+  function toNum(v) {
+    if (typeof v === 'string' && v.replace(/\s/g, '') !== '') { v = Number(v); }
+    return isNum(v) ? v : null;
+  }
+
+  function copyDefaults() { var k; for (k in DEFAULTS) { if (Object.prototype.hasOwnProperty.call(DEFAULTS, k)) { cfg[k] = DEFAULTS[k]; } } cfg.ampStates = DEFAULTS.ampStates.slice(); }
+  function snapParams() { for (var i = 0; i < KEYS.length; i++) { cur[KEYS[i]] = tgt[KEYS[i]] = TARGETS[state][KEYS[i]]; } }
+  copyDefaults();
+  snapParams();
+
+  /* ------------------------------------------------------------------ */
+  /* Input handling                                                      */
+  /* ------------------------------------------------------------------ */
+
+  function setAmplitude(v) {
+    if (destroyed) { return false; }
+    var n = toNum(v);
+    if (n === null) { return false; }
+    inputAmp = clamp(n, 0, 1);
+    lastAmpTime = nowMs();
+    return true;
+  }
+
+  function setState(s) {
+    if (destroyed || typeof s !== 'string') { return false; }
+    s = s.replace(/^\s+|\s+$/g, '').toLowerCase();
+    if (STATES.indexOf(s) < 0) { return false; }
+    if (s === state) { return true; }
+    state = s;
+    for (var i = 0; i < KEYS.length; i++) { tgt[KEYS[i]] = TARGETS[s][KEYS[i]]; }
+    if (s !== 'speaking') { speakingMode = 'state'; }
+    return true;
+  }
+
+  function normSpectrum(arr, n) {
+    // returns max value, writes low/mid/high means (raw units) into bandsRaw
+    var max = 0, i, v;
+    for (i = 0; i < n; i++) { v = arr[i]; if (isNum(v) && v > max) { max = v; } }
+    var div = max > 255 ? 32768 : (max > 1.0001 ? 255 : 1);
+    var third = Math.max(1, Math.floor(n / 3));
+    var sums = [0, 0, 0], cnt = [0, 0, 0], b, sq = 0, c = 0;
+    for (i = 0; i < n; i++) {
+      v = arr[i];
+      v = isNum(v) ? clamp(v / div, 0, 1) : 0;
+      b = Math.min(2, Math.floor(i / third));
+      sums[b] += v; cnt[b]++;
+      sq += v * v; c++;
+    }
+    for (b = 0; b < 3; b++) { bandsRaw[b] = cnt[b] ? sums[b] / cnt[b] : 0; }
+    return c ? Math.sqrt(sq / c) : 0;
+  }
+
+  function isNumList(d) {
+    return Array.isArray(d) || (global.ArrayBuffer && ArrayBuffer.isView(d) && !(global.DataView && d instanceof DataView));
+  }
+
+  /* Accepts: number[] / typed array (magnitude spectrum, 0..1 or 0..255),
+   *          { amplitude, spectrum } object, or a JSON string of either (parsed with JSON.parse only). */
+  function setAudioData(data) {
+    if (destroyed) { return false; }
+    if (typeof data === 'string') {
+      if (data.length > 65536) { return false; }
+      try { data = JSON.parse(data); } catch (e) { return false; }
+    }
+    var amp = null, spec = null;
+    if (typeof data === 'number') { return setAmplitude(data); }
+    if (isNumList(data)) { spec = data; }
+    else if (data && typeof data === 'object') {
+      amp = toNum(data.amplitude);
+      if (isNumList(data.spectrum)) { spec = data.spectrum; }
+      else if (isNumList(data.bands)) { spec = data.bands; }
+    }
+    if (spec === null && amp === null) { return false; }
+    var now = nowMs();
+    if (spec !== null) {
+      var n = Math.min(spec.length >>> 0, 4096);
+      if (n < 1) { return false; }
+      var rms = normSpectrum(spec, n);
+      lastSpecTime = now;
+      if (amp === null) { amp = rms; }
+    }
+    inputAmp = clamp(amp, 0, 1);
+    lastAmpTime = now;
+    return true;
+  }
+
+  function setOptions(o) {
+    if (destroyed || !o || typeof o !== 'object') { return false; }
+    var changedSize = false, changedQuality = false, n;
+    if ((n = toNum(o.sensitivity)) !== null) { cfg.sensitivity = clamp(n, 0, 4); }
+    if ((n = toNum(o.gate)) !== null) { cfg.gate = clamp(n, 0, 0.5); }
+    if ((n = toNum(o.attack)) !== null) { cfg.attack = clamp(n, 0.005, 2); }
+    if ((n = toNum(o.release)) !== null) { cfg.release = clamp(n, 0.005, 3); }
+    if ((n = toNum(o.maxDpr)) !== null) { cfg.maxDpr = clamp(n, 1, 3); changedSize = true; }
+    if ((n = toNum(o.targetFps)) !== null) { cfg.targetFps = clamp(n, 15, 60); }
+    if ((n = toNum(o.idleFps)) !== null) { cfg.idleFps = clamp(n, 10, 60); }
+    if ((n = toNum(o.opacity)) !== null) { cfg.opacity = clamp(n, 0.2, 1); }
+    if ((n = toNum(o.baseRadius)) !== null) { cfg.baseRadius = clamp(n, 0.3, 0.7); }
+    if ((n = toNum(o.staleMs)) !== null) { cfg.staleMs = clamp(n, 50, 1e7); }
+    if ((n = toNum(o.speakingStaleMs)) !== null) { cfg.speakingStaleMs = clamp(n, 50, 1e7); }
+    if (o.size !== undefined) { setSize(o.size); changedSize = false; }
+    if (o.quality === 'auto' || o.quality === 'high' || o.quality === 'low') {
+      if (cfg.quality !== o.quality) { cfg.quality = o.quality; changedQuality = true; }
+    }
+    if (o.reducedMotion === true || o.reducedMotion === false || o.reducedMotion === null) { cfg.reducedMotion = o.reducedMotion; applyReducedMotion(); }
+    if (Array.isArray(o.ampStates)) {
+      var list = [], i;
+      for (i = 0; i < o.ampStates.length; i++) { if (STATES.indexOf(o.ampStates[i]) >= 0) { list.push(o.ampStates[i]); } }
+      cfg.ampStates = list;
+    }
+    if (changedQuality && initialised) { scale = 1; rebuildRenderer(); }
+    else if (changedSize && initialised) { applySize(); }
+    return true;
+  }
+
+  function setSize(v) {
+    if (destroyed) { return false; }
+    var n;
+    if (v === 'auto' || v === 0 || v === null) { cfg.size = 0; }
+    else if ((n = toNum(v)) !== null && n >= 16 && n <= 4096) { cfg.size = Math.round(n); }
+    else { return false; }
+    if (doc && doc.documentElement) {
+      doc.documentElement.style.setProperty('--orb-size', cfg.size ? cfg.size + 'px' : 'min(100vw, 100vh)');
+    }
+    if (initialised) { applySize(); }
+    return true;
+  }
+
+  function reset() {
+    if (destroyed) { return false; }
+    inputAmp = 0; lastAmpTime = -1e9; lastSpecTime = -1e9;
+    level = 0; slow = 0; bandsRaw[0] = bandsRaw[1] = bandsRaw[2] = 0; bandsSm[0] = bandsSm[1] = bandsSm[2] = 0;
+    state = 'idle'; speakingMode = 'state'; snapParams();
+    for (var i = 0; i < 12; i++) { frame.waves[i] = 0; }
+    return true;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Per-frame simulation                                                */
+  /* ------------------------------------------------------------------ */
+
+  function synthSpeaking(t) {
+    // Deterministic, state-based "talking" cadence: NOT audio-reactive.
+    var gate = 0.5 + 0.5 * Math.sin(t * 0.9 + Math.sin(t * 0.37) * 1.5);
+    var env = 0.30 + 0.22 * Math.sin(t * 5.1) + 0.14 * Math.sin(t * 8.3 + 1.3) + 0.08 * Math.sin(t * 13.7 + 0.4);
+    return clamp(env * (0.35 + 0.65 * gate), 0, 0.85);
+  }
+
+  function ampActive() { return cfg.ampStates.indexOf(state) >= 0; }
+
+  function update(dt, ts) {
+    var i, k = expk(dt, 0.28);
+    for (i = 0; i < KEYS.length; i++) { cur[KEYS[i]] += (tgt[KEYS[i]] - cur[KEYS[i]]) * k; }
+
+    var speed = reducedMotion ? 0.35 : 1;
+    if (state === 'muted') { speed *= 0.4; }
+    else if (state === 'processing') { speed *= 1.15; }
+    time += dt * speed;
+    if (time > 20000) { time -= 20000; }
+
+    var now = ts;
+    var raw = 0;
+    if (ampActive()) {
+      var age = now - lastAmpTime;
+      if (state === 'speaking' && age > cfg.speakingStaleMs) {
+        raw = synthSpeaking(time); speakingMode = 'state';
+      } else {
+        raw = age < cfg.staleMs ? inputAmp : 0;
+        if (state === 'speaking') { speakingMode = 'audio'; }
+      }
+    }
+    var x = clamp(raw * cfg.sensitivity * (reducedMotion ? 0.5 : 1), 0, 1);
+    x = x <= cfg.gate ? 0 : (x - cfg.gate) / (1 - cfg.gate);
+    x = Math.pow(x, 0.65);
+    level += (x - level) * expk(dt, x > level ? cfg.attack : cfg.release);
+    if (level < 0.002) { level = 0; }
+    slow += (level - slow) * expk(dt, 0.35);
+
+    // bands: real spectrum if fresh, otherwise a weighted split of the level
+    var specFresh = ampActive() && (now - lastSpecTime) < cfg.staleMs;
+    var bt, g = cfg.sensitivity;
+    for (i = 0; i < 3; i++) {
+      if (specFresh) {
+        bt = clamp(bandsRaw[i] * g * 2.2, 0, 1);
+        bt = bt <= cfg.gate ? 0 : Math.pow(bt, 0.7);
+      } else {
+        bt = level * (i === 0 ? 0.9 : (i === 1 ? 0.75 : 0.55));
+      }
+      bandsSm[i] += (bt - bandsSm[i]) * expk(dt, bt > bandsSm[i] ? cfg.attack : cfg.release);
+      if (bandsSm[i] < 0.002) { bandsSm[i] = 0; }
+    }
+
+    // waves: spawned only on real onsets of the smoothed level
+    var j, w = frame.waves;
+    for (j = 0; j < 3; j++) {
+      if (w[j * 4 + 1] > 0) {
+        w[j * 4] += dt / 1.0;
+        if (w[j * 4] >= 1) { w[j * 4] = 0; w[j * 4 + 1] = 0; }
+      }
+    }
+    if (!reducedMotion && level > 0.38 && (level - slow) > 0.14 && now - lastWave > 260) {
+      var slot = -1, oldest = -1;
+      for (j = 0; j < 3; j++) {
+        if (w[j * 4 + 1] <= 0) { slot = j; break; }
+        if (w[j * 4] > oldest) { oldest = w[j * 4]; slot = j; }
+      }
+      w[slot * 4] = 0; w[slot * 4 + 1] = level; lastWave = now;
+    }
+
+    // radius / glow
+    var tt = time;
+    var br = cur.breath * (0.012 * Math.sin(6.28318 * 0.20 * tt) + 0.006 * Math.sin(6.28318 * 0.37 * tt + 1.0));
+    if (reducedMotion) { br *= 0.4; }
+    var pr = cur.proc * 0.012 * Math.sin(6.28318 * 0.9 * tt);
+    var ep = 0;
+    if (cur.err > 0.01) {
+      var s1 = Math.sin(6.28318 * 0.9 * tt), s2 = Math.sin(6.28318 * 0.9 * tt + 0.9);
+      ep = cur.err * (Math.pow(Math.max(s1, 0), 8) * 0.6 + Math.pow(Math.max(s2, 0), 8) * 0.4);
+    }
+    // error: beat-synced sideways shake + red pulse waves
+    if (cur.err > 0.3 && !reducedMotion && ep > 0.55 && now - lastWave > 450) {
+      var es = -1;
+      for (j = 0; j < 3; j++) { if (w[j * 4 + 1] <= 0) { es = j; break; } }
+      if (es >= 0) { w[es * 4] = 0; w[es * 4 + 1] = 0.9; lastWave = now; }
+    }
+    frame.shake = reducedMotion ? 0 : ep * 0.018 * Math.sin(tt * 60);
+    frame.idle = clamp(1 - cur.listen - cur.speak - cur.proc - cur.err, 0, 1) * clamp(cur.sat, 0, 1);
+    frame.time = time;
+    frame.radius = cfg.baseRadius * (1 + br + pr + ep * 0.03 + level * (reducedMotion ? 0.04 : 0.075));
+    frame.amp = level;
+    frame.bands[0] = bandsSm[0]; frame.bands[1] = bandsSm[1]; frame.bands[2] = bandsSm[2];
+    frame.glow = cur.glow * (1 + 0.9 * level + 0.5 * ep);
+    frame.sat = cur.sat; frame.bright = cur.bright;
+    frame.err = cur.err; frame.proc = cur.proc; frame.speak = cur.speak; frame.listen = cur.listen;
+    frame.tint[0] = cur.tx; frame.tint[1] = cur.ty; frame.tint[2] = cur.tz;
+    frame.opacity = cfg.opacity;
+  }
+
+  function wavesActive() {
+    var w = frame.waves;
+    return w[1] > 0 || w[5] > 0 || w[9] > 0;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* WebGL renderer                                                      */
+  /* ------------------------------------------------------------------ */
+
+  function GLRenderer(low) {
+    this.low = !!low;
+    this.kind = low ? 'webgl-low' : 'webgl';
+    this.canvas = doc.createElement('canvas');
+    this.gl = null; this.prog = null; this.buf = null; this.u = {};
+    this.w = 0; this.h = 0; this.lost = false;
+    var self = this;
+    this._onLost = function (e) { e.preventDefault(); self.lost = true; onContextLost(); };
+    this._onRestored = function () { self.lost = false; try { self._build(); onContextRestored(); } catch (err) { onContextFailed(); } };
+    this.canvas.addEventListener('webglcontextlost', this._onLost, false);
+    this.canvas.addEventListener('webglcontextrestored', this._onRestored, false);
+    var attrs = { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: false, powerPreference: 'default' };
+    this.gl = this.canvas.getContext('webgl', attrs) || this.canvas.getContext('experimental-webgl', attrs);
+    if (!this.gl) { throw new Error('WebGL unavailable'); }
+    this._build();
+  }
+
+  GLRenderer.prototype._compile = function (type, src) {
+    var gl = this.gl, s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      var log = gl.getShaderInfoLog(s); gl.deleteShader(s);
+      throw new Error('Shader compile failed: ' + log);
+    }
+    return s;
+  };
+
+  GLRenderer.prototype._build = function () {
+    var gl = this.gl;
+    var vs = this._compile(gl.VERTEX_SHADER, global.AIVAShaders.vertex);
+    var fs = this._compile(gl.FRAGMENT_SHADER, global.AIVAShaders.fragment(this.low));
+    var p = gl.createProgram();
+    gl.attachShader(p, vs); gl.attachShader(p, fs);
+    gl.bindAttribLocation(p, 0, 'a_pos');
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) { throw new Error('Program link failed: ' + gl.getProgramInfoLog(p)); }
+    gl.deleteShader(vs); gl.deleteShader(fs);
+    this.prog = p;
+    var names = ['u_res', 'u_time', 'u_px', 'u_radius', 'u_amp', 'u_bands', 'u_glow', 'u_sat', 'u_bright', 'u_err', 'u_proc', 'u_speak', 'u_listen', 'u_opacity', 'u_tint', 'u_shake', 'u_idle'];
+    for (var i = 0; i < names.length; i++) { this.u[names[i]] = gl.getUniformLocation(p, names[i]); }
+    this.u.u_waves = gl.getUniformLocation(p, 'u_waves[0]');
+    this.buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
+    gl.clearColor(0, 0, 0, 0);
+    gl.useProgram(p);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  };
+
+  GLRenderer.prototype.resize = function (w, h) {
+    this.w = w; this.h = h;
+    if (this.canvas.width !== w) { this.canvas.width = w; }
+    if (this.canvas.height !== h) { this.canvas.height = h; }
+    if (this.gl && !this.lost) { this.gl.viewport(0, 0, w, h); }
+  };
+
+  GLRenderer.prototype.render = function (f) {
+    var gl = this.gl, u = this.u;
+    if (!gl || this.lost) { return; }
+    gl.viewport(0, 0, this.w, this.h);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform2f(u.u_res, this.w, this.h);
+    gl.uniform1f(u.u_time, f.time);
+    gl.uniform1f(u.u_px, 2 / Math.min(this.w, this.h));
+    gl.uniform1f(u.u_radius, f.radius);
+    gl.uniform1f(u.u_amp, f.amp);
+    gl.uniform3f(u.u_bands, f.bands[0], f.bands[1], f.bands[2]);
+    gl.uniform1f(u.u_glow, f.glow);
+    gl.uniform1f(u.u_sat, f.sat);
+    gl.uniform1f(u.u_bright, f.bright);
+    gl.uniform1f(u.u_err, f.err);
+    gl.uniform1f(u.u_proc, f.proc);
+    gl.uniform1f(u.u_speak, f.speak);
+    gl.uniform1f(u.u_listen, f.listen);
+    gl.uniform1f(u.u_opacity, f.opacity);
+    gl.uniform3f(u.u_tint, f.tint[0], f.tint[1], f.tint[2]);
+    gl.uniform1f(u.u_shake, f.shake);
+    gl.uniform1f(u.u_idle, f.idle);
+    gl.uniform4fv(u.u_waves, f.waves);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  };
+
+  GLRenderer.prototype.destroy = function () {
+    var gl = this.gl;
+    this.canvas.removeEventListener('webglcontextlost', this._onLost, false);
+    this.canvas.removeEventListener('webglcontextrestored', this._onRestored, false);
+    if (gl) {
+      try {
+        if (this.prog) { gl.deleteProgram(this.prog); }
+        if (this.buf) { gl.deleteBuffer(this.buf); }
+        var ext = gl.getExtension('WEBGL_lose_context');
+        if (ext) { ext.loseContext(); }
+      } catch (e) { /* ignore */ }
+    }
+    this.gl = null; this.prog = null; this.buf = null;
+    if (this.canvas.parentNode) { this.canvas.parentNode.removeChild(this.canvas); }
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Canvas 2D fallback (lower fidelity, same visual language)           */
+  /* ------------------------------------------------------------------ */
+
+  var STOPS = [ // [position 0=top..1=bottom, r, g, b]
+    [0.000, 0.16, 0.92, 1.00], [0.075, 0.27, 0.56, 1.00], [0.225, 0.60, 0.52, 1.00],
+    [0.350, 0.96, 0.66, 0.96], [0.500, 1.00, 0.94, 0.52], [0.550, 1.00, 0.70, 0.34],
+    [0.625, 1.00, 0.64, 0.58], [0.750, 1.00, 0.56, 0.80], [0.900, 0.80, 0.62, 0.98],
+    [1.000, 1.00, 0.78, 0.70]
+  ];
+
+  function C2DRenderer() {
+    this.kind = 'canvas2d';
+    this.canvas = doc.createElement('canvas');
+    this.ctx = this.canvas.getContext('2d');
+    if (!this.ctx) { throw new Error('Canvas 2D unavailable'); }
+    this.w = 0; this.h = 0;
+  }
+  C2DRenderer.prototype.resize = function (w, h) {
+    this.w = w; this.h = h;
+    if (this.canvas.width !== w) { this.canvas.width = w; }
+    if (this.canvas.height !== h) { this.canvas.height = h; }
+  };
+  C2DRenderer.prototype._col = function (f, r, g, b, a) {
+    r *= f.tint[0]; g *= f.tint[1]; b *= f.tint[2];
+    var lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    r = r + (lum * 1.10 + 0.18 - r) * f.err; g = g + (lum * 0.30 - g) * f.err; b = b + (lum * 0.36 + 0.05 - b) * f.err;
+    r = (lum + (r - lum) * f.sat) * f.bright; g = (lum + (g - lum) * f.sat) * f.bright; b = (lum + (b - lum) * f.sat) * f.bright;
+    return 'rgba(' + Math.round(clamp(r, 0, 1) * 255) + ',' + Math.round(clamp(g, 0, 1) * 255) + ',' + Math.round(clamp(b, 0, 1) * 255) + ',' + a + ')';
+  };
+  C2DRenderer.prototype.render = function (f) {
+    var ctx = this.ctx, W = this.w, H = this.h, m = Math.min(W, H);
+    var cx = W / 2, cy = H / 2, R = f.radius * m / 2, i, g, s;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    // bloom
+    g = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.5);
+    g.addColorStop(0, this._col(f, 1.0, 0.65, 0.9, clamp(0.35 * f.glow, 0, 0.8)));
+    g.addColorStop(1, this._col(f, 0.6, 0.8, 1.0, 0));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 1.5, 0, 6.2832); ctx.fill();
+
+    // audio waves
+    ctx.lineWidth = Math.max(1, R * 0.02);
+    for (i = 0; i < 3; i++) {
+      var wp = f.waves[i * 4], ws = f.waves[i * 4 + 1];
+      if (ws > 0) {
+        ctx.strokeStyle = this._col(f, 0.8, 0.8, 1.0, clamp(ws * (1 - wp) * (1 - wp) * 0.7, 0, 1));
+        ctx.beginPath(); ctx.arc(cx, cy, R * (1.05 + wp * 0.26), 0, 6.2832); ctx.stroke();
+      }
+    }
+
+    // sphere body
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.2832); ctx.clip();
+    ctx.globalAlpha = f.opacity;
+    g = ctx.createLinearGradient(0, cy - R, 0, cy + R);
+    for (i = 0; i < STOPS.length; i++) { s = STOPS[i]; g.addColorStop(s[0], this._col(f, s[1], s[2], s[3], 1)); }
+    ctx.fillStyle = g; ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+
+    var boost = 1 + f.bands[1] * 0.7 + f.amp * 0.5;
+    ctx.save(); ctx.translate(cx, cy + R * 0.04); ctx.scale(1, 0.14);
+    g = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+    g.addColorStop(0, this._col(f, 1, 0.95, 0.65, clamp(0.85 * boost * 0.6, 0, 1)));
+    g.addColorStop(1, this._col(f, 1, 0.8, 0.4, 0));
+    ctx.fillStyle = g; ctx.fillRect(-R, -R, R * 2, R * 2); ctx.restore();
+
+    // processing lights
+    if (f.proc > 0.01) {
+      var a1 = f.time * 1.7;
+      g = ctx.createRadialGradient(cx + Math.cos(a1) * R * 0.46, cy - Math.sin(a1 * 0.8 + 0.5) * R * 0.46, 0, cx + Math.cos(a1) * R * 0.46, cy - Math.sin(a1 * 0.8 + 0.5) * R * 0.46, R * 0.5);
+      g.addColorStop(0, this._col(f, 1, 1, 1, 0.6 * f.proc)); g.addColorStop(1, this._col(f, 1, 1, 1, 0));
+      ctx.fillStyle = g; ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+    }
+    // top-left glow
+    g = ctx.createRadialGradient(cx - R * 0.3, cy - R * 0.58, 0, cx - R * 0.3, cy - R * 0.58, R * 0.55);
+    g.addColorStop(0, this._col(f, 0.85, 1, 1, 0.45)); g.addColorStop(1, this._col(f, 0.85, 1, 1, 0));
+    ctx.fillStyle = g; ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+    // bottom glow
+    g = ctx.createRadialGradient(cx, cy + R * 0.9, 0, cx, cy + R * 0.9, R * 0.5);
+    g.addColorStop(0, this._col(f, 1, 0.88, 0.58, 0.7)); g.addColorStop(1, this._col(f, 1, 0.88, 0.58, 0));
+    ctx.fillStyle = g; ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+
+    // rim
+    ctx.lineWidth = R * 0.07;
+    if (ctx.createConicGradient) {
+      g = ctx.createConicGradient(f.time * 0.05, cx, cy);
+      g.addColorStop(0, this._col(f, 1.0, 0.65, 0.8, 0.8)); g.addColorStop(0.25, this._col(f, 0.4, 0.9, 1.0, 0.8));
+      g.addColorStop(0.5, this._col(f, 0.7, 0.55, 1.0, 0.8)); g.addColorStop(0.75, this._col(f, 1.0, 0.75, 0.4, 0.8));
+      g.addColorStop(1, this._col(f, 1.0, 0.65, 0.8, 0.8));
+      ctx.strokeStyle = g;
+    } else { ctx.strokeStyle = this._col(f, 0.8, 0.65, 1.0, 0.7); }
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.975, 0, 6.2832); ctx.stroke();
+
+    // crescent highlights
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = this._col(f, 0.95, 1, 1, clamp(0.8 * (1 + f.bands[2] * 0.5), 0, 1)); ctx.lineWidth = R * 0.03;
+    ctx.beginPath(); ctx.arc(cx + R * 0.04, cy - R * 0.05, R * 0.86, Math.PI * 1.02, Math.PI * 1.46); ctx.stroke();
+    ctx.strokeStyle = this._col(f, 1, 0.92, 1, 0.45); ctx.lineWidth = R * 0.022;
+    ctx.beginPath(); ctx.arc(cx - R * 0.02, cy - R * 0.04, R * 0.84, Math.PI * 1.68, Math.PI * 1.93); ctx.stroke();
+    ctx.restore();
+
+    ctx.strokeStyle = this._col(f, 1, 0.92, 0.98, 0.35); ctx.lineWidth = Math.max(1, R * 0.012);
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.995, 0, 6.2832); ctx.stroke();
+  };
+  C2DRenderer.prototype.destroy = function () {
+    if (this.canvas.parentNode) { this.canvas.parentNode.removeChild(this.canvas); }
+    this.ctx = null;
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Renderer management                                                 */
+  /* ------------------------------------------------------------------ */
+
+  function onContextLost() {
+    rendererLost = true;
+    if (lostTimer) { clearTimeout(lostTimer); }
+    lostTimer = setTimeout(function () { lostTimer = 0; if (rendererLost && !destroyed) { onContextFailed(); } }, 4000);
+  }
+  function onContextRestored() {
+    rendererLost = false;
+    if (lostTimer) { clearTimeout(lostTimer); lostTimer = 0; }
+    applySize(); warm = 20;
+  }
+  function onContextFailed() {
+    if (lostTimer) { clearTimeout(lostTimer); lostTimer = 0; }
+    rendererLost = false;
+    if (renderer) { renderer.destroy(); renderer = null; }
+    try { renderer = new C2DRenderer(); rendererKind = renderer.kind; box.appendChild(renderer.canvas); applySize(); }
+    catch (e) { renderer = null; rendererKind = 'none'; }
+  }
+
+  function createRenderer() {
+    var tries = cfg.quality === 'low' ? [['gl', true], ['2d']] : [['gl', false], ['gl', true], ['2d']];
+    for (var i = 0; i < tries.length; i++) {
+      try {
+        var r = tries[i][0] === 'gl' ? new GLRenderer(tries[i][1]) : new C2DRenderer();
+        return r;
+      } catch (e) {
+        if (global.console && console.warn) { console.warn('[AIVAOrb] renderer "' + tries[i][0] + (tries[i][1] ? '-low' : '') + '" failed: ' + (e && e.message)); }
+      }
+    }
+    return null;
+  }
+
+  function rebuildRenderer() {
+    if (renderer) { renderer.destroy(); renderer = null; }
+    rendererLost = false;
+    renderer = createRenderer();
+    if (renderer) { rendererKind = renderer.kind; box.appendChild(renderer.canvas); applySize(); }
+    else { rendererKind = 'none'; }
+    warm = 20;
+  }
+
+  function applySize() {
+    if (!renderer || !box) { return; }
+    var css = box.clientWidth || 0;
+    if (css < 1) { return; }
+    var dpr = Math.min(global.devicePixelRatio || 1, cfg.maxDpr);
+    var maxPx = cfg.quality === 'low' ? 512 : 1024;
+    var px = Math.round(clamp(css * dpr * scale, 64, maxPx));
+    renderer.resize(px, px);
+    if (ready && !running) { drawOnce(); }
+  }
+
+  function drawOnce() {
+    if (!renderer || rendererLost) { return; }
+    renderer.render(frame);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Loop                                                                */
+  /* ------------------------------------------------------------------ */
+
+  function fpsCap() {
+    var cap = cfg.targetFps;
+    if (reducedMotion) { cap = Math.min(cap, 30); }
+    if ((state === 'idle' || state === 'muted') && level === 0 && !wavesActive()) { cap = Math.min(cap, cfg.idleFps); }
+    return cap;
+  }
+
+  function loop(ts) {
+    rafId = 0;
+    if (!running) { return; }
+    rafId = global.requestAnimationFrame(loop);
+    if (!renderer || rendererLost) { lastRenderTs = 0; return; }
+    var minI = 1000 / fpsCap();
+    if (lastRenderTs && ts - lastRenderTs < minI * 0.9) { return; }
+    var dt = lastRenderTs ? Math.min((ts - lastRenderTs) / 1000, 0.1) : 1 / 60;
+    if (lastRenderTs) {
+      var iv = ts - lastRenderTs;
+      fpsEma = fpsEma ? fpsEma * 0.9 + (1000 / iv) * 0.1 : 1000 / iv;
+      if (warm > 0) { warm--; }
+      else if (cfg.quality === 'auto' && rendererKind !== 'canvas2d') {
+        perfSum += iv; perfN++;
+        if (perfN >= 60) {
+          if (perfSum / perfN > minI * 1.5 && scale > 0.55) { scale = Math.max(0.55, scale - 0.15); applySize(); warm = 20; }
+          perfSum = 0; perfN = 0;
+        }
+      }
+    }
+    lastRenderTs = ts;
+    update(dt, ts);
+    renderer.render(frame);
+  }
+
+  function startLoop() {
+    if (running || destroyed || userPaused || !initialised || (doc && doc.hidden)) { return; }
+    running = true; lastRenderTs = 0; warm = 20; perfSum = 0; perfN = 0;
+    rafId = global.requestAnimationFrame(loop);
+  }
+  function stopLoop() {
+    running = false;
+    if (rafId) { global.cancelAnimationFrame(rafId); rafId = 0; }
+  }
+
+  function pause() { if (destroyed) { return false; } userPaused = true; stopLoop(); return true; }
+  function resume() { if (destroyed) { return false; } userPaused = false; startLoop(); return true; }
+
+  /* ------------------------------------------------------------------ */
+  /* Lifecycle                                                           */
+  /* ------------------------------------------------------------------ */
+
+  function addListener(target, type, fn) {
+    target.addEventListener(type, fn, false);
+    listeners.push([target, type, fn]);
+  }
+
+  function applyReducedMotion() {
+    reducedMotion = cfg.reducedMotion === null ? !!(rmQuery && rmQuery.matches) : !!cfg.reducedMotion;
+  }
+
+  function parseUrlParams() {
+    try {
+      if (!global.URLSearchParams) { return; }
+      var q = new URLSearchParams(global.location.search), v;
+      if ((v = q.get('size')) !== null) { setSize(v); }
+      if ((v = q.get('quality')) !== null) { setOptions({ quality: v }); }
+      if ((v = q.get('sensitivity')) !== null) { setOptions({ sensitivity: v }); }
+      if ((v = q.get('state')) !== null) { setState(v); snapParams(); }
+    } catch (e) { /* ignore */ }
+  }
+
+  function notifyReady() {
+    ready = true;
+    global.AIVAOrbReady = true;
+    try {
+      var ev = typeof global.CustomEvent === 'function' ? new CustomEvent('aivaorb:ready', { detail: getStatus() }) : null;
+      if (ev) { global.dispatchEvent(ev); }
+    } catch (e) { /* ignore */ }
+    try { if (typeof api.onReady === 'function') { api.onReady(getStatus()); } } catch (e2) { /* ignore */ }
+    try { if (global.AIVAHost && typeof global.AIVAHost.onOrbReady === 'function') { global.AIVAHost.onOrbReady(); } } catch (e3) { /* optional host hook */ }
+  }
+
+  function init(options) {
+    if (initialised && !destroyed) { if (options) { setOptions(options); } return true; }
+    if (!doc || !doc.body) { return false; }
+    destroyed = false; ready = false; global.AIVAOrbReady = false;
+    root = doc.getElementById('aiva-orb-root');
+    if (!root) { root = doc.createElement('div'); root.id = 'aiva-orb-root'; doc.body.appendChild(root); }
+    box = doc.createElement('div'); box.className = 'aiva-orb-box';
+    root.appendChild(box);
+    rmQuery = global.matchMedia ? global.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    if (options) { setOptions(options); }
+    parseUrlParams();
+    applyReducedMotion();
+    setSize(cfg.size || 'auto');
+
+    renderer = createRenderer();
+    if (!renderer) { return false; }
+    initialised = true;
+    rendererKind = renderer.kind;
+    box.appendChild(renderer.canvas);
+    scale = 1;
+    applySize();
+
+    if (global.ResizeObserver) { ro = new ResizeObserver(function () { applySize(); }); ro.observe(box); }
+    addListener(global, 'resize', applySize);
+    addListener(global, 'orientationchange', applySize);
+    addListener(doc, 'visibilitychange', function () { if (doc.hidden) { stopLoop(); } else { startLoop(); } });
+    if (rmQuery) {
+      var rmFn = function () { applyReducedMotion(); };
+      if (rmQuery.addEventListener) { rmQuery.addEventListener('change', rmFn); listeners.push([rmQuery, 'change', rmFn]); }
+      else if (rmQuery.addListener) { rmQuery.addListener(rmFn); listeners.push([rmQuery, '__legacy', rmFn]); }
+    }
+    update(1 / 60, nowMs()); drawOnce();
+    startLoop();
+    notifyReady();
+    return true;
+  }
+
+  function destroy() {
+    if (destroyed) { return true; }
+    destroyed = true; ready = false; global.AIVAOrbReady = false;
+    stopLoop();
+    if (lostTimer) { clearTimeout(lostTimer); lostTimer = 0; }
+    if (ro) { try { ro.disconnect(); } catch (e) { /* ignore */ } ro = null; }
+    for (var i = 0; i < listeners.length; i++) {
+      var l = listeners[i];
+      try { if (l[1] === '__legacy') { l[0].removeListener(l[2]); } else { l[0].removeEventListener(l[1], l[2], false); } } catch (e2) { /* ignore */ }
+    }
+    listeners.length = 0;
+    if (renderer) { renderer.destroy(); renderer = null; }
+    if (box && box.parentNode) { box.parentNode.removeChild(box); }
+    box = null; rendererKind = 'none'; initialised = false; rendererLost = false;
+    return true;
+  }
+
+  function getStatus() {
+    return {
+      version: VERSION, ready: ready, destroyed: destroyed, state: state, renderer: rendererKind,
+      level: level, amplitudeInput: inputAmp, bands: [bandsSm[0], bandsSm[1], bandsSm[2]],
+      speakingMode: speakingMode, reducedMotion: reducedMotion, renderScale: scale, fps: Math.round(fpsEma),
+      canvas: renderer ? [renderer.w, renderer.h] : [0, 0], activeWaves: wavesActive() ? 1 : 0,
+      paused: userPaused || !running, options: { sensitivity: cfg.sensitivity, gate: cfg.gate, quality: cfg.quality, size: cfg.size }
+    };
+  }
+
+  var api = {
+    version: VERSION,
+    states: STATES.slice(),
+    get ready() { return ready; },
+    setAmplitude: setAmplitude,
+    setState: setState,
+    setAudioData: setAudioData,
+    reset: reset,
+    destroy: destroy,
+    init: init,
+    setOptions: setOptions,
+    setSize: setSize,
+    pause: pause,
+    resume: resume,
+    getStatus: getStatus,
+    onReady: null
+  };
+  global.AIVAOrb = api;
+  global.AIVAOrbReady = false;
+
+  if (doc.readyState === 'loading') {
+    doc.addEventListener('DOMContentLoaded', function () { if (!initialised && !destroyed) { init(); } });
+  } else { init(); }
+})(window);
+</script>
+
+<script>
+/* Native-app control surface. No microphone permission or native bridge is exposed to this page. */
+(function (global) {
+  'use strict';
+  var VALID_STATES = ['idle', 'listening', 'processing', 'speaking', 'muted', 'error'];
+  function api() { return global.AIVAOrb || null; }
+  global.AIVAOrbApp = {
+    version: '1.0.0',
+    isReady: function () { var o = api(); return !!(o && o.ready); },
+    setState: function (state) {
+      var o = api();
+      if (!o || typeof state !== 'string' || VALID_STATES.indexOf(state) < 0) { return false; }
+      return o.setState(state);
+    },
+    setAmplitude: function (value) {
+      var o = api();
+      if (!o || typeof value !== 'number' || !isFinite(value)) { return false; }
+      value = Math.max(0, Math.min(1, value));
+      return o.setAmplitude(value);
+    },
+    setAudioData: function (data) { var o = api(); return !!(o && o.setAudioData(data)); },
+    setOptions: function (options) { var o = api(); return !!(o && o.setOptions(options)); },
+    pause: function () { var o = api(); return !!(o && o.pause()); },
+    resume: function () { var o = api(); return !!(o && o.resume()); },
+    reset: function () { var o = api(); return !!(o && o.reset()); },
+    getStatus: function () { var o = api(); return o ? o.getStatus() : null; }
+  };
+})(window);
+</script>
+
+</body>
+</html>

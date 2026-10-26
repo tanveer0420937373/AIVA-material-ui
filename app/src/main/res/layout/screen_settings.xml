@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp" android:paddingBottom="28dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Settings" android:textColor="@color/aiva_text" android:textSize="28sp" android:textStyle="bold" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Make AIVA feel like yours." android:textColor="@color/aiva_muted" android:textSize="14sp" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="18dp" android:padding="16dp" android:background="@drawable/bg_card">
+            <TextView style="@style/SectionTitle" android:text="Appearance" />
+            <Spinner android:id="@+id/settings_theme" android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="8dp" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="12dp" android:padding="16dp" android:background="@drawable/bg_card">
+            <TextView style="@style/SectionTitle" android:text="Default model" />
+            <TextView android:id="@+id/settings_model_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="No model selected" android:textSize="16sp" android:textColor="@color/aiva_text" android:textStyle="bold" />
+            <TextView android:id="@+id/settings_model_provider" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Choose one to start" android:textColor="@color/aiva_muted" android:textSize="13sp" />
+            <TextView android:id="@+id/settings_change_model" style="@style/SmallPillButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Change model" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="12dp" android:padding="16dp" android:background="@drawable/bg_card">
+            <TextView style="@style/SectionTitle" android:text="Voice" />
+            <TextView style="@style/FieldLabel" android:text="Voice" />
+            <Spinner android:id="@+id/settings_voice" android:layout_width="match_parent" android:layout_height="48dp" />
+            <TextView style="@style/FieldLabel" android:text="Speaking pace" />
+            <Spinner android:id="@+id/settings_speed" android:layout_width="match_parent" android:layout_height="48dp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Uses this phone’s text-to-speech voices and speaking rate." android:textColor="@color/aiva_muted" android:textSize="12sp" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="12dp" android:padding="16dp" android:background="@drawable/bg_card">
+            <TextView style="@style/SectionTitle" android:text="Chat" />
+            <Switch android:id="@+id/settings_auto_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Name chats automatically" android:textColor="@color/aiva_text" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Uses your first message as the title." android:textColor="@color/aiva_muted" android:textSize="12sp" />
+            <Switch android:id="@+id/settings_enter_send" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Keyboard action sends" android:textColor="@color/aiva_text" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Otherwise Enter adds a new line." android:textColor="@color/aiva_muted" android:textSize="12sp" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="12dp" android:padding="16dp" android:background="@drawable/bg_card">
+            <TextView style="@style/SectionTitle" android:text="Privacy" />
+            <Switch android:id="@+id/settings_save_history" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Save chat history" android:textColor="@color/aiva_text" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Turning this off deletes the saved file. The conversation on screen stays until you leave the app." android:textColor="@color/aiva_muted" android:textSize="12sp" />
+            <TextView android:id="@+id/settings_clear_history" style="@style/DangerPillButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Clear all conversations" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="12dp" android:padding="16dp" android:background="@drawable/bg_card">
+            <TextView style="@style/SectionTitle" android:text="AI providers" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Keys are encrypted on this phone with Android Keystore, then sent to the provider you choose. They are not unextractable if the phone itself is compromised." android:textColor="@color/aiva_muted" android:textSize="12sp" />
+            <TextView android:id="@+id/openrouter_status" style="@style/ProviderStatus" android:text="OpenRouter · Not set up" />
+            <EditText android:id="@+id/openrouter_key" style="@style/ApiKeyInput" android:hint="Paste OpenRouter API key" android:inputType="textPassword" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:id="@+id/openrouter_toggle" style="@style/SmallPillButton" android:text="Show" />
+                <TextView android:id="@+id/openrouter_save" style="@style/SmallPillButton" android:text="Save key" />
+                <TextView android:id="@+id/openrouter_test" style="@style/SmallPillButton" android:text="Test" />
+                <TextView android:id="@+id/openrouter_remove" style="@style/SmallPillButton" android:text="Remove" />
+            </LinearLayout>
+            <TextView android:id="@+id/gemini_status" style="@style/ProviderStatus" android:text="Google AI Studio · Not set up" />
+            <EditText android:id="@+id/gemini_key" style="@style/ApiKeyInput" android:hint="Paste Google AI Studio API key" android:inputType="textPassword" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:id="@+id/gemini_toggle" style="@style/SmallPillButton" android:text="Show" />
+                <TextView android:id="@+id/gemini_save" style="@style/SmallPillButton" android:text="Save key" />
+                <TextView android:id="@+id/gemini_test" style="@style/SmallPillButton" android:text="Test" />
+                <TextView android:id="@+id/gemini_remove" style="@style/SmallPillButton" android:text="Remove" />
+            </LinearLayout>
+            <TextView android:id="@+id/huggingface_status" style="@style/ProviderStatus" android:text="Hugging Face · Not set up" />
+            <EditText android:id="@+id/huggingface_key" style="@style/ApiKeyInput" android:hint="Paste Hugging Face API key" android:inputType="textPassword" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:id="@+id/huggingface_toggle" style="@style/SmallPillButton" android:text="Show" />
+                <TextView android:id="@+id/huggingface_save" style="@style/SmallPillButton" android:text="Save key" />
+                <TextView android:id="@+id/huggingface_test" style="@style/SmallPillButton" android:text="Test" />
+                <TextView android:id="@+id/huggingface_remove" style="@style/SmallPillButton" android:text="Remove" />
+            </LinearLayout>
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="12dp" android:padding="16dp" android:background="@drawable/bg_card">
+            <TextView style="@style/SectionTitle" android:text="About AIVA" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Version 0.1.0 · native Android XML layouts" android:textColor="@color/aiva_text" android:textSize="14sp" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="A saved key is not proof it works — use Test. Replies come only from the provider you select. There is no offline sample model." android:textColor="@color/aiva_muted" android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

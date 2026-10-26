@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true"
+    android:clipToPadding="false">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:paddingStart="20dp" android:paddingEnd="20dp"
+        android:paddingTop="10dp" android:paddingBottom="24dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:text="AIVA" android:textColor="@color/aiva_primary" android:textSize="26sp" android:fontFamily="sans" android:textStyle="bold" />
+            <TextView android:id="@+id/home_models" style="@style/SmallPillButton" android:text="Model" />
+            <TextView android:id="@+id/home_new_chat" style="@style/SmallPillButton" android:text="＋ New" />
+        </LinearLayout>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="26dp"
+            android:text="Hello there," android:textColor="@color/aiva_muted" android:textSize="18sp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp"
+            android:text="What’s on your mind today?" android:textColor="@color/aiva_text" android:textSize="30sp" android:fontFamily="sans" android:textStyle="bold" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="22dp"
+            android:orientation="vertical" android:padding="12dp" android:background="@drawable/bg_card">
+            <EditText android:id="@+id/home_message" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:minHeight="68dp" android:gravity="top|start" android:hint="Ask AIVA anything…"
+                android:background="@android:color/transparent" android:padding="8dp" android:textColor="@color/aiva_text"
+                android:textColorHint="@color/aiva_muted" android:inputType="textCapSentences|textMultiLine" android:maxLines="5" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+                <TextView android:id="@+id/home_attach" style="@style/SmallPillButton" android:text="＋ Image" />
+                <TextView android:id="@+id/home_voice" style="@style/SmallPillButton" android:text="◉ Voice" />
+                <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+                <TextView android:id="@+id/home_send" style="@style/PrimaryPillButton" android:text="Send  ➤" />
+            </LinearLayout>
+            <TextView android:id="@+id/home_attachment_count" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textColor="@color/aiva_muted" android:textSize="12sp" android:visibility="gone" />
+            <HorizontalScrollView android:id="@+id/home_attachment_scroll" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:scrollbars="none">
+                <LinearLayout android:id="@+id/home_attachment_strip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" />
+            </HorizontalScrollView>
+        </LinearLayout>
+        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:scrollbars="none">
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:id="@+id/suggestion_weekend" style="@style/SuggestionChip" android:text="Plan a calm weekend" />
+                <TextView android:id="@+id/suggestion_studio" style="@style/SuggestionChip" android:text="Name my studio" />
+                <TextView android:id="@+id/suggestion_kotlin" style="@style/SuggestionChip" android:text="Explain Kotlin" />
+                <TextView android:id="@+id/suggestion_note" style="@style/SuggestionChip" android:text="Write a kind note" />
+            </LinearLayout>
+        </HorizontalScrollView>
+        <LinearLayout android:id="@+id/home_voice_promo" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="18dp" android:background="@drawable/bg_panel" android:padding="16dp" android:gravity="center_vertical">
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Talk it through"
+                    android:textColor="@color/aiva_text" android:textSize="18sp" android:textStyle="bold" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="5dp"
+                    android:text="Speak a message and hear the reply on this phone." android:textColor="@color/aiva_muted" android:textSize="13sp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="10dp"
+                    android:text="◉  Voice mode  →" android:textColor="@color/aiva_primary" android:textStyle="bold" />
+            </LinearLayout>
+            <ImageView android:layout_width="82dp" android:layout_height="82dp" android:layout_marginStart="12dp"
+                android:src="@drawable/aiva_orb" android:scaleType="centerCrop" android:contentDescription="AIVA voice orb" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:gravity="center_vertical">
+            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Recent chats"
+                android:textColor="@color/aiva_text" android:textSize="20sp" android:textStyle="bold" />
+            <TextView android:id="@+id/home_see_all" style="@style/TextButton" android:text="See all" />
+        </LinearLayout>
+        <EditText android:id="@+id/home_search" android:layout_width="match_parent" android:layout_height="46dp" android:layout_marginTop="10dp"
+            android:background="@drawable/bg_input" android:paddingStart="14dp" android:paddingEnd="14dp" android:hint="Search conversations"
+            android:textColor="@color/aiva_text" android:textColorHint="@color/aiva_muted" android:singleLine="true" android:inputType="text" />
+        <LinearLayout android:id="@+id/home_recent_list" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:layout_marginTop="10dp" />
+    </LinearLayout>
+</ScrollView>

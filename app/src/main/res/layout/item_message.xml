@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:padding="12dp" android:layout_marginBottom="10dp" android:background="@drawable/bg_message_assistant">
+    <TextView android:id="@+id/message_role" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="AIVA" android:textColor="@color/aiva_primary" android:textSize="12sp" android:textStyle="bold" />
+    <TextView android:id="@+id/message_text" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Message text" android:textColor="@color/aiva_text" android:textSize="15sp" android:textIsSelectable="true" />
+    <LinearLayout android:id="@+id/message_images" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp" android:visibility="gone" />
+    <TextView android:id="@+id/message_attachment" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:textColor="@color/aiva_muted" android:textSize="12sp" android:visibility="gone" />
+    <LinearLayout android:id="@+id/message_actions" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="end" android:layout_marginTop="4dp">
+        <TextView android:id="@+id/message_copy" style="@style/TextButton" android:text="Copy" />
+        <TextView android:id="@+id/message_share" style="@style/TextButton" android:text="Share" android:visibility="gone" />
+        <TextView android:id="@+id/message_save" style="@style/TextButton" android:text="Save" android:visibility="gone" />
+        <TextView android:id="@+id/message_like" style="@style/TextButton" android:text="👍" android:contentDescription="Helpful response" />
+        <TextView android:id="@+id/message_dislike" style="@style/TextButton" android:text="👎" android:contentDescription="Not helpful" />
+        <TextView android:id="@+id/message_regenerate" style="@style/TextButton" android:text="Regenerate" />
+    </LinearLayout>
+</LinearLayout>

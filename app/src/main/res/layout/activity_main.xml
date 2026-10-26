@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_view" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@color/aiva_background">
+    <FrameLayout android:id="@+id/screen_host" android:layout_width="match_parent"
+        android:layout_height="0dp" android:layout_weight="1" />
+    <LinearLayout android:id="@+id/bottom_navigation" android:layout_width="match_parent"
+        android:layout_height="64dp" android:orientation="horizontal" android:gravity="center"
+        android:paddingStart="8dp" android:paddingEnd="8dp" android:background="@drawable/bg_bottom_nav">
+        <TextView android:id="@+id/nav_home" style="@style/BottomNavItem" android:text="⌂\nHome" />
+        <TextView android:id="@+id/nav_history" style="@style/BottomNavItem" android:text="◷\nHistory" />
+        <TextView android:id="@+id/nav_voice" style="@style/BottomNavItem" android:text="≋\nVoice" />
+        <TextView android:id="@+id/nav_settings" style="@style/BottomNavItem" android:text="⚙\nSettings" />
+    </LinearLayout>
+</LinearLayout>

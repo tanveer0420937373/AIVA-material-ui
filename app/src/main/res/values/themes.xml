@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.Aiva" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/aiva_background</item>
+        <item name="android:statusBarColor">@color/aiva_background</item>
+        <item name="android:navigationBarColor">@color/aiva_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="colorAccent">@color/aiva_primary</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+</resources>
