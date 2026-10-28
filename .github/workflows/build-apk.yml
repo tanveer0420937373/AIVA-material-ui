@@ -1,4 +1,4 @@
-name: Build AIVA APK
+name: Build AIVA Release APK
 
 on:
   workflow_dispatch:
@@ -20,8 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-debug-apk:
-    name: Compile installable debug APK
+  build-release-apk:
+    name: Build and sign release APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -51,13 +51,50 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Compile debug APK
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
+      - name: Verify signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo "::error::Missing KEYSTORE_BASE64 repository secret"; exit 1; }
+          test -n "$KEYSTORE_PASSWORD" || { echo "::error::Missing KEYSTORE_PASSWORD repository secret"; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "::error::Missing KEY_ALIAS repository secret"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "::error::Missing KEY_PASSWORD repository secret"; exit 1; }
 
-      - name: Upload installable APK
+      - name: Build release APK
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/aiva-release.jks"
+          test -s "$RUNNER_TEMP/aiva-release.jks"
+
+      - name: Sign release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-signed.apk' | head -n 1)"
+          test -n "$APK" || { echo "::error::Release APK not found"; exit 1; }
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -v 4 "$APK" app/build/outputs/apk/release/aiva-release-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks "$RUNNER_TEMP/aiva-release.jks" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --out app/build/outputs/apk/release/AIVA-release-signed.apk \
+            app/build/outputs/apk/release/aiva-release-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/AIVA-release-signed.apk
+
+      - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
-          name: AIVA-debug-APK
-          path: app/build/outputs/apk/debug/*.apk
+          name: AIVA-release-signed-APK
+          path: app/build/outputs/apk/release/AIVA-release-signed.apk
           if-no-files-found: error
           retention-days: 14
